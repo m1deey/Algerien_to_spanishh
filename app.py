@@ -1,6 +1,8 @@
 import streamlit as st
-import json
 import html
+import base64
+import asyncio
+import edge_tts
 
 
 # =========================================================
@@ -219,6 +221,56 @@ CATEGORY_COLORS = {
 
 
 # =========================================================
+# NATURAL VOICE AUDIO — Microsoft Edge neural TTS
+# Browser built-in speechSynthesis sounds robotic and its
+# voice depends on the visitor's device/OS. Instead we
+# pre-generate real, human-sounding audio clips once (server
+# side, cached) using a modern male Spanish neural voice, and
+# embed them as native <audio> players — no custom JS needed,
+# so nothing depends on inline scripts being allowed to run.
+# Requires "edge-tts" in requirements.txt.
+# =========================================================
+
+TTS_VOICE = "es-ES-AlvaroNeural"  # modern, natural-sounding male Spain-Spanish voice
+
+
+@st.cache_data(show_spinner="Generating natural voice audio…")
+def get_audio_map():
+    """Generate (once, cached) a base64 mp3 clip for every unique
+    Spanish phrase used in the app."""
+
+    async def _gen_one(text):
+        communicate = edge_tts.Communicate(text, TTS_VOICE, rate="-8%")
+        audio_bytes = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_bytes += chunk["data"]
+        return text, base64.b64encode(audio_bytes).decode()
+
+    async def _gen_all():
+        texts = sorted(set(item["es"] for item in WORDS))
+        results = await asyncio.gather(
+            *[_gen_one(t) for t in texts],
+            return_exceptions=True
+        )
+        out = {}
+        for r in results:
+            if isinstance(r, Exception):
+                continue
+            text, b64 = r
+            out[text] = b64
+        return out
+
+    return asyncio.run(_gen_all())
+
+
+try:
+    AUDIO_MAP = get_audio_map()
+except Exception:
+    AUDIO_MAP = {}
+
+
+# =========================================================
 # CUSTOM CSS
 # =========================================================
 
@@ -314,18 +366,16 @@ div[data-baseweb="select"] > div { border-radius: 14px; border: 1px solid #dfe7e
     border: 0;
     border-radius: 13px;
     padding: 12px 13px;
-    cursor: pointer;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    text-align: left;
-    transition: all .15s ease;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
 }
-.spanish-button:hover { filter: brightness(0.97); transform: scale(1.01); }
-.spanish-button:active { transform: scale(.98); }
 
 .spanish-text { font-size: 19px; font-weight: 750; }
-.speaker-icon { font-size: 18px; }
+
+.spanish-audio { width: 100%; height: 36px; }
+.spanish-audio::-webkit-media-controls-panel { background: transparent; }
 
 .word-meaning { color: #707b76; font-size: 13px; margin-top: 9px; }
 
@@ -416,40 +466,7 @@ st.markdown(
 # BUILD CARD HTML
 # =========================================================
 
-# Registers window.speakSpanish once, using an onerror-triggered
-# 1x1 broken image. Inline event-handler attributes (onerror,
-# onclick, ...) DO run even when the HTML is injected via
-# innerHTML/unsafe_allow_html — unlike <script> tags, which
-# browsers silently ignore when inserted that way. This lets the
-# whole word grid live directly on the main page (no iframe), so
-# it scrolls and sizes itself exactly like the rest of Streamlit's
-# layout, on desktop and mobile alike.
-speech_bootstrap = (
-    '<img src="x" style="display:none" onerror="'
-    "window.getSpanishVoice = function() {"
-    "  const voices = window.speechSynthesis.getVoices();"
-    "  let voice = voices.find(v => v.lang.toLowerCase() === 'es-es');"
-    "  if (!voice) voice = voices.find(v => v.lang.toLowerCase().startsWith('es'));"
-    "  return voice;"
-    "};"
-    "window.speakSpanish = function(text, button) {"
-    "  window.speechSynthesis.cancel();"
-    "  const utterance = new SpeechSynthesisUtterance(text);"
-    "  utterance.lang = 'es-ES';"
-    "  utterance.rate = 0.88;"
-    "  utterance.pitch = 1.0;"
-    "  const voice = window.getSpanishVoice();"
-    "  if (voice) utterance.voice = voice;"
-    "  button.style.transform = &quot;scale(.98)&quot;;"
-    "  utterance.onend = function() { button.style.transform = ''; };"
-    "  utterance.onerror = function() { button.style.transform = ''; };"
-    "  window.speechSynthesis.speak(utterance);"
-    "};"
-    "window.speechSynthesis.onvoiceschanged = function() { window.speechSynthesis.getVoices(); };"
-    '"/>'
-)
-
-cards = [speech_bootstrap]
+cards = []
 
 for item in filtered:
     dz = html.escape(item["dz"])
@@ -458,7 +475,18 @@ for item in filtered:
     meaning = html.escape(item["meaning"])
     category = html.escape(item["category"])
     accent = CATEGORY_COLORS.get(item["category"], "#087653")
-    js_text = html.escape(json.dumps(item["es"]), quote=True)
+    b64_audio = AUDIO_MAP.get(item["es"])
+
+    if b64_audio:
+        audio_html = (
+            f'<audio class="spanish-audio" controls preload="none">'
+            f'<source src="data:audio/mpeg;base64,{b64_audio}" type="audio/mpeg">'
+            f'</audio>'
+        )
+    else:
+        # TTS generation failed (e.g. no network at startup) — show
+        # text only rather than breaking the card.
+        audio_html = '<div style="font-size:12px;color:#a3aca7;">Audio unavailable</div>'
 
     card = (
         f'<div class="word-card">'
@@ -466,11 +494,10 @@ for item in filtered:
         f'<div class="word-dz">{dz}</div>'
         f'<div class="word-roman">{roman}</div>'
         f'<div class="word-divider"></div>'
-        f'<button class="spanish-button" onclick="speakSpanish({js_text}, this)" '
-        f'title="Listen to pronunciation" style="background:{accent}14;">'
+        f'<div class="spanish-button" style="background:{accent}14;">'
         f'<span class="spanish-text" style="color:{accent};">🇪🇸 {spanish}</span>'
-        f'<span class="speaker-icon">🔊</span>'
-        f'</button>'
+        f'{audio_html}'
+        f'</div>'
         f'<div class="word-meaning">{meaning}</div>'
         f'</div>'
     )
