@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import json
 import html
 
@@ -289,6 +288,47 @@ header { visibility: hidden; }
 div[data-testid="stTextInput"] input { border-radius: 14px; border: 1px solid #dfe7e3; padding: 13px 16px; font-size: 15px; }
 div[data-baseweb="select"] > div { border-radius: 14px; border: 1px solid #dfe7e3; }
 
+/* Word-card grid — rendered directly in the main page (no iframe),
+   so it scrolls and resizes as part of the normal page flow. */
+.word-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+
+.word-card {
+    background: #ffffff;
+    border: 1px solid #e4ebe7;
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 5px 18px rgba(0,0,0,.035);
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.word-card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,.09); }
+
+.word-category { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+
+.word-dz { color: #202825; font-size: 23px; font-weight: 700; direction: rtl; text-align: right; line-height: 1.4; }
+.word-roman { color: #84918c; font-size: 13px; margin-top: 4px; font-style: italic; }
+
+.word-divider { height: 1px; background: #edf1ef; margin: 14px 0; }
+
+.spanish-button {
+    width: 100%;
+    border: 0;
+    border-radius: 13px;
+    padding: 12px 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+    transition: all .15s ease;
+}
+.spanish-button:hover { filter: brightness(0.97); transform: scale(1.01); }
+.spanish-button:active { transform: scale(.98); }
+
+.spanish-text { font-size: 19px; font-weight: 750; }
+.speaker-icon { font-size: 18px; }
+
+.word-meaning { color: #707b76; font-size: 13px; margin-top: 9px; }
+
 @media (max-width: 700px) {
     .block-container { padding: 1rem; }
     .hero { padding: 30px 23px; border-radius: 22px; }
@@ -296,6 +336,10 @@ div[data-baseweb="select"] > div { border-radius: 14px; border: 1px solid #dfe7e
     .hero p { font-size: 15px; }
     .hero::after { font-size: 70px; right: 15px; }
     .made-by { font-size: 9px; padding: 4px 8px; top: 14px; right: 14px; }
+    .word-grid { grid-template-columns: 1fr; gap: 11px; }
+    .word-card { padding: 16px; border-radius: 16px; }
+    .word-dz { font-size: 21px; }
+    .spanish-text { font-size: 18px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -372,7 +416,40 @@ st.markdown(
 # BUILD CARD HTML
 # =========================================================
 
-cards = []
+# Registers window.speakSpanish once, using an onerror-triggered
+# 1x1 broken image. Inline event-handler attributes (onerror,
+# onclick, ...) DO run even when the HTML is injected via
+# innerHTML/unsafe_allow_html — unlike <script> tags, which
+# browsers silently ignore when inserted that way. This lets the
+# whole word grid live directly on the main page (no iframe), so
+# it scrolls and sizes itself exactly like the rest of Streamlit's
+# layout, on desktop and mobile alike.
+speech_bootstrap = (
+    '<img src="x" style="display:none" onerror="'
+    "window.getSpanishVoice = function() {"
+    "  const voices = window.speechSynthesis.getVoices();"
+    "  let voice = voices.find(v => v.lang.toLowerCase() === 'es-es');"
+    "  if (!voice) voice = voices.find(v => v.lang.toLowerCase().startsWith('es'));"
+    "  return voice;"
+    "};"
+    "window.speakSpanish = function(text, button) {"
+    "  window.speechSynthesis.cancel();"
+    "  const utterance = new SpeechSynthesisUtterance(text);"
+    "  utterance.lang = 'es-ES';"
+    "  utterance.rate = 0.88;"
+    "  utterance.pitch = 1.0;"
+    "  const voice = window.getSpanishVoice();"
+    "  if (voice) utterance.voice = voice;"
+    "  button.style.transform = &quot;scale(.98)&quot;;"
+    "  utterance.onend = function() { button.style.transform = ''; };"
+    "  utterance.onerror = function() { button.style.transform = ''; };"
+    "  window.speechSynthesis.speak(utterance);"
+    "};"
+    "window.speechSynthesis.onvoiceschanged = function() { window.speechSynthesis.getVoices(); };"
+    '"/>'
+)
+
+cards = [speech_bootstrap]
 
 for item in filtered:
     dz = html.escape(item["dz"])
@@ -381,20 +458,20 @@ for item in filtered:
     meaning = html.escape(item["meaning"])
     category = html.escape(item["category"])
     accent = CATEGORY_COLORS.get(item["category"], "#087653")
-    js_text = json.dumps(item["es"])
+    js_text = html.escape(json.dumps(item["es"]), quote=True)
 
     card = (
-        f'<div class="card">'
-        f'<div class="category" style="color:{accent};">{category}</div>'
-        f'<div class="dz">{dz}</div>'
-        f'<div class="roman">{roman}</div>'
-        f'<div class="divider"></div>'
-        f'<button class="spanish-button" onclick=\'speakSpanish({js_text}, this)\' '
-        f'title="Escuchar pronunciación" style="background:{accent}14;">'
-        f'<span class="spanish" style="color:{accent};">🇪🇸 {spanish}</span>'
-        f'<span class="speaker">🔊</span>'
+        f'<div class="word-card">'
+        f'<div class="word-category" style="color:{accent};">{category}</div>'
+        f'<div class="word-dz">{dz}</div>'
+        f'<div class="word-roman">{roman}</div>'
+        f'<div class="word-divider"></div>'
+        f'<button class="spanish-button" onclick="speakSpanish({js_text}, this)" '
+        f'title="Listen to pronunciation" style="background:{accent}14;">'
+        f'<span class="spanish-text" style="color:{accent};">🇪🇸 {spanish}</span>'
+        f'<span class="speaker-icon">🔊</span>'
         f'</button>'
-        f'<div class="meaning">{meaning}</div>'
+        f'<div class="word-meaning">{meaning}</div>'
         f'</div>'
     )
     cards.append(card)
@@ -403,130 +480,11 @@ cards_html = "".join(cards)
 
 
 # =========================================================
-# PRONUNCIATION COMPONENT
-# =========================================================
-
-component_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-* {{ box-sizing: border-box; }}
-body {{ margin: 0; background: transparent; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-
-.grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }}
-
-.card {{
-    background: #ffffff;
-    border: 1px solid #e4ebe7;
-    border-radius: 18px;
-    padding: 18px;
-    box-shadow: 0 5px 18px rgba(0,0,0,.035);
-    transition: transform .15s ease, box-shadow .15s ease;
-}}
-.card:hover {{ transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0,0,0,.09); }}
-
-.category {{ font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }}
-
-.dz {{ color: #202825; font-size: 23px; font-weight: 700; direction: rtl; text-align: right; line-height: 1.4; }}
-.roman {{ color: #84918c; font-size: 13px; margin-top: 4px; font-style: italic; }}
-
-.divider {{ height: 1px; background: #edf1ef; margin: 14px 0; }}
-
-.spanish-button {{
-    width: 100%;
-    border: 0;
-    border-radius: 13px;
-    padding: 12px 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    text-align: left;
-    transition: all .15s ease;
-}}
-.spanish-button:hover {{ filter: brightness(0.97); transform: scale(1.01); }}
-.spanish-button:active {{ transform: scale(.98); }}
-
-.spanish {{ font-size: 19px; font-weight: 750; }}
-.speaker {{ font-size: 18px; }}
-
-.meaning {{ color: #707b76; font-size: 13px; margin-top: 9px; }}
-
-@media (max-width: 700px) {{
-    .grid {{ grid-template-columns: 1fr; gap: 11px; }}
-    .card {{ padding: 16px; border-radius: 16px; }}
-    .dz {{ font-size: 21px; }}
-    .spanish {{ font-size: 18px; }}
-}}
-</style>
-</head>
-<body>
-
-<div class="grid">
-{cards_html}
-</div>
-
-<script>
-function getSpanishVoice() {{
-    const voices = window.speechSynthesis.getVoices();
-    let voice = voices.find(v => v.lang.toLowerCase() === "es-es");
-    if (!voice) voice = voices.find(v => v.lang.toLowerCase().startsWith("es"));
-    return voice;
-}}
-
-function speakSpanish(text, button) {{
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "es-ES";
-    utterance.rate = 0.88;
-    utterance.pitch = 1.0;
-    const voice = getSpanishVoice();
-    if (voice) utterance.voice = voice;
-
-    button.style.transform = "scale(.98)";
-    utterance.onend = function() {{ button.style.transform = ""; }};
-    utterance.onerror = function() {{ button.style.transform = ""; }};
-
-    window.speechSynthesis.speak(utterance);
-}}
-
-window.speechSynthesis.onvoiceschanged = function() {{
-    window.speechSynthesis.getVoices();
-}};
-
-// ---- Auto-resize the iframe to match real content height ----
-// The grid is 2 columns on desktop but 1 column on mobile, so the
-// real height depends on the viewport, not just the item count.
-// Report the true height to the Streamlit parent frame instead of
-// relying on a fixed guess, so nothing gets clipped/unscrollable.
-function reportHeight() {{
-    const height = document.documentElement.scrollHeight;
-    window.parent.postMessage({{type: "streamlit:setFrameHeight", height: height}}, "*");
-}}
-window.addEventListener("load", reportHeight);
-window.addEventListener("resize", reportHeight);
-new ResizeObserver(reportHeight).observe(document.body);
-reportHeight();
-setTimeout(reportHeight, 300); // catch late font/layout shifts
-</script>
-
-</body>
-</html>
-"""
-
-
-# =========================================================
 # SHOW CARDS
 # =========================================================
 
 if filtered:
-    # Initial guess before the iframe reports its real height via
-    # postMessage (see reportHeight() in the component script above).
-    rows = (len(filtered) + 1) // 2
-    height = max(200, rows * 175)
-    components.html(component_html, height=height, scrolling=False)
+    st.markdown(f'<div class="word-grid">{cards_html}</div>', unsafe_allow_html=True)
 else:
     st.markdown(
         '<div style="text-align:center;padding:50px 20px;color:#7b8782;">'
@@ -549,5 +507,6 @@ footer_html = (
 '</div>'
 )
 st.markdown(footer_html, unsafe_allow_html=True)
+
 
 
