@@ -260,6 +260,20 @@ header { visibility: hidden; }
     font-size: 110px;
     opacity: .10;
 }
+.made-by {
+    position: absolute;
+    top: 18px;
+    right: 22px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,.75);
+    background: rgba(255,255,255,.10);
+    border: 1px solid rgba(255,255,255,.18);
+    padding: 5px 10px;
+    border-radius: 999px;
+    z-index: 1;
+}
 .hero h1 { font-size: clamp(30px, 5vw, 50px); font-weight: 800; margin: 0; letter-spacing: -1.5px; }
 .hero p { font-size: 17px; margin-top: 12px; max-width: 650px; opacity: .88; line-height: 1.6; }
 .badge {
@@ -281,6 +295,7 @@ div[data-baseweb="select"] > div { border-radius: 14px; border: 1px solid #dfe7e
     .hero h1 { font-size: 32px; }
     .hero p { font-size: 15px; }
     .hero::after { font-size: 70px; right: 15px; }
+    .made-by { font-size: 9px; padding: 4px 8px; top: 14px; right: 14px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -293,11 +308,12 @@ div[data-baseweb="select"] > div { border-radius: 14px; border: 1px solid #dfe7e
 
 hero_html = (
 '<div class="hero">'
-'<div class="badge">🇩🇿 Darija Argelina → 🇪🇸 Español</div>'
+'<div class="made-by">MADE BY YASSER</div>'
+'<div class="badge">🇩🇿 Algerian Darija → 🇪🇸 Spanish</div>'
 '<h1>Dzayer → Español</h1>'
-'<p>Palabras y expresiones argelinas traducidas a un español '
-'natural y cotidiano — no traducciones literales. '
-'Toca 🔊 para escuchar la pronunciación en español.</p>'
+'<p>Algerian words and expressions translated into natural, '
+'everyday Spanish — not literal word-for-word translations. '
+'Tap 🔊 to hear the Spanish pronunciation.</p>'
 '</div>'
 )
 st.markdown(hero_html, unsafe_allow_html=True)
@@ -479,6 +495,21 @@ function speakSpanish(text, button) {{
 window.speechSynthesis.onvoiceschanged = function() {{
     window.speechSynthesis.getVoices();
 }};
+
+// ---- Auto-resize the iframe to match real content height ----
+// The grid is 2 columns on desktop but 1 column on mobile, so the
+// real height depends on the viewport, not just the item count.
+// Report the true height to the Streamlit parent frame instead of
+// relying on a fixed guess, so nothing gets clipped/unscrollable.
+function reportHeight() {{
+    const height = document.documentElement.scrollHeight;
+    window.parent.postMessage({{type: "streamlit:setFrameHeight", height: height}}, "*");
+}}
+window.addEventListener("load", reportHeight);
+window.addEventListener("resize", reportHeight);
+new ResizeObserver(reportHeight).observe(document.body);
+reportHeight();
+setTimeout(reportHeight, 300); // catch late font/layout shifts
 </script>
 
 </body>
@@ -491,6 +522,8 @@ window.speechSynthesis.onvoiceschanged = function() {{
 # =========================================================
 
 if filtered:
+    # Initial guess before the iframe reports its real height via
+    # postMessage (see reportHeight() in the component script above).
     rows = (len(filtered) + 1) // 2
     height = max(200, rows * 175)
     components.html(component_html, height=height, scrolling=False)
@@ -516,4 +549,5 @@ footer_html = (
 '</div>'
 )
 st.markdown(footer_html, unsafe_allow_html=True)
+
 
