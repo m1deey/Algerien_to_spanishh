@@ -366,16 +366,19 @@ div[data-baseweb="select"] > div { border-radius: 14px; border: 1px solid #dfe7e
     border: 0;
     border-radius: 13px;
     padding: 12px 13px;
+    cursor: pointer;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+    transition: all .15s ease;
+    user-select: none;
 }
+.spanish-button:hover { filter: brightness(0.97); transform: scale(1.01); }
+.spanish-button:active { filter: brightness(0.94); transform: scale(.98); }
 
 .spanish-text { font-size: 19px; font-weight: 750; }
-
-.spanish-audio { width: 100%; height: 36px; }
-.spanish-audio::-webkit-media-controls-panel { background: transparent; }
+.speaker-icon { font-size: 18px; }
 
 .word-meaning { color: #707b76; font-size: 13px; margin-top: 9px; }
 
@@ -468,7 +471,7 @@ st.markdown(
 
 cards = []
 
-for item in filtered:
+for idx, item in enumerate(filtered):
     dz = html.escape(item["dz"])
     roman = html.escape(item["roman"])
     spanish = html.escape(item["es"])
@@ -476,17 +479,28 @@ for item in filtered:
     category = html.escape(item["category"])
     accent = CATEGORY_COLORS.get(item["category"], "#087653")
     b64_audio = AUDIO_MAP.get(item["es"])
+    audio_id = f"audio-{idx}"
 
     if b64_audio:
+        # The <audio> element itself stays hidden — no native
+        # scrubber/download/speed menu. The styled pill below is
+        # what the user clicks; it just tells this element to play.
+        # Self-contained onclick (no dependency on a separately
+        # registered global function), so each button works on its
+        # own regardless of render order.
         audio_html = (
-            f'<audio class="spanish-audio" controls preload="none">'
+            f'<audio id="{audio_id}" preload="none" style="display:none;">'
             f'<source src="data:audio/mpeg;base64,{b64_audio}" type="audio/mpeg">'
             f'</audio>'
         )
+        button_attrs = (
+            f'onclick=\'document.querySelectorAll("audio").forEach(a=>a.pause());'
+            f'var t=document.getElementById("{audio_id}");'
+            f'if(t){{{{t.currentTime=0;t.play();}}}}\''
+        )
     else:
-        # TTS generation failed (e.g. no network at startup) — show
-        # text only rather than breaking the card.
-        audio_html = '<div style="font-size:12px;color:#a3aca7;">Audio unavailable</div>'
+        audio_html = ""
+        button_attrs = 'title="Audio unavailable"'
 
     card = (
         f'<div class="word-card">'
@@ -494,8 +508,9 @@ for item in filtered:
         f'<div class="word-dz">{dz}</div>'
         f'<div class="word-roman">{roman}</div>'
         f'<div class="word-divider"></div>'
-        f'<div class="spanish-button" style="background:{accent}14;">'
+        f'<div class="spanish-button" style="background:{accent}14;" {button_attrs}>'
         f'<span class="spanish-text" style="color:{accent};">🇪🇸 {spanish}</span>'
+        f'<span class="speaker-icon">🔊</span>'
         f'{audio_html}'
         f'</div>'
         f'<div class="word-meaning">{meaning}</div>'
@@ -534,6 +549,3 @@ footer_html = (
 '</div>'
 )
 st.markdown(footer_html, unsafe_allow_html=True)
-
-
-
